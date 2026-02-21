@@ -58,6 +58,13 @@
     color: #333;
   }
 
+  #ding-progress {
+    font-size: 0.75rem;
+    color: #444;
+    font-weight: 300;
+    min-height: 1.2em;
+  }
+
   /* --- Sound selector --- */
   .sound-row {
     display: flex;
@@ -84,14 +91,20 @@
     border-bottom-color: #c0c0c0;
   }
 
-  /* --- Interval --- */
-  .interval-row {
+  /* --- Settings row --- */
+  .settings {
     display: flex;
     align-items: baseline;
-    gap: 0.5rem;
+    gap: 1.5rem;
   }
 
-  .interval-row input {
+  .setting {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+  }
+
+  .setting input {
     background: none;
     border: none;
     border-bottom: 1px solid #333;
@@ -106,11 +119,11 @@
     transition: border-color 0.2s;
   }
 
-  .interval-row input:focus {
+  .setting input:focus {
     border-bottom-color: #666;
   }
 
-  .interval-row span {
+  .setting span {
     font-size: 0.85rem;
     color: #555;
     font-weight: 300;
@@ -163,16 +176,25 @@
 <div class="container">
   <h1>Dinger</h1>
 
-  <div id="countdown"></div>
+  <div style="text-align:center">
+    <div id="countdown"></div>
+    <div id="ding-progress"></div>
+  </div>
 
   <div class="sound-row">
     <button class="sound-btn" data-sound="bell">Bell</button>
     <button class="sound-btn" data-sound="bowl">Singing Bowl</button>
   </div>
 
-  <div class="interval-row">
-    <input type="number" id="interval" min="1" step="1" value="5">
-    <span>min</span>
+  <div class="settings">
+    <div class="setting">
+      <input type="number" id="interval" min="1" step="1" value="5">
+      <span>min</span>
+    </div>
+    <div class="setting">
+      <input type="number" id="dings" min="1" step="1" value="3">
+      <span>dings</span>
+    </div>
   </div>
 
   <div class="controls">
@@ -187,10 +209,21 @@
 <audio id="audio-bowl" preload="auto" src="freesound_community-singing-bowl-hit-3-33366.mp3"></audio>
 
 <script>
-const SOUNDS = {
-  bell: { label: "Bell", el: document.getElementById("audio-bell") },
-  bowl: { label: "Singing Bowl", el: document.getElementById("audio-bowl") },
+const SOUND_URLS = {
+  bell: "140128__jetrye__bell-meditation_cleaned.wav",
+  bowl: "freesound_community-singing-bowl-hit-3-33366.mp3",
 };
+
+const SOUND_LABELS = { bell: "Bell", bowl: "Singing Bowl" };
+
+// For preview playback
+const previewEls = {
+  bell: document.getElementById("audio-bell"),
+  bowl: document.getElementById("audio-bowl"),
+};
+
+// Decoded AudioBuffers for building the composite track
+const decodedBuffers = {};
 
 let selectedSound = localStorage.getItem("dinger-sound") || "bell";
 let swRegistration = null;
@@ -202,20 +235,35 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// --- Restore interval ---
+// --- Restore settings ---
 const intervalInput = document.getElementById("interval");
+const dingsInput = document.getElementById("dings");
+
 const savedInterval = localStorage.getItem("dinger-interval");
 if (savedInterval) intervalInput.value = savedInterval;
+
+const savedDings = localStorage.getItem("dinger-dings");
+if (savedDings) dingsInput.value = savedDings;
 
 intervalInput.addEventListener("change", () => {
   localStorage.setItem("dinger-interval", intervalInput.value);
 });
+dingsInput.addEventListener("change", () => {
+  localStorage.setItem("dinger-dings", dingsInput.value);
+});
 
-function playSound() {
-  const audio = SOUNDS[selectedSound].el;
-  audio.currentTime = 0;
-  audio.play();
+// --- Decode audio files upfront ---
+async function decodeSound(key) {
+  const resp = await fetch(SOUND_URLS[key]);
+  const arrayBuf = await resp.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  decodedBuffers[key] = await audioCtx.decodeAudioData(arrayBuf);
+  audioCtx.close();
 }
+
+// Decode both sounds on load
+decodeSound("bell");
+decodeSound("bowl");
 
 function selectSound(key) {
   selectedSound = key;
@@ -225,87 +273,132 @@ function selectSound(key) {
   });
 }
 
+document.querySelectorAll(".sound-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    selectSound(btn.dataset.sound);
+    previewEls[btn.dataset.sound].currentTime = 0;
+    previewEls[btn.dataset.sound].play();
+  });
+});
+
+selectSound(selectedSound);
+
 function showNotification() {
   if (!swRegistration || Notification.permission !== "granted") return;
   swRegistration.showNotification("Dinger", {
-    body: SOUNDS[selectedSound].label,
+    body: SOUND_LABELS[selectedSound],
     tag: "dinger-bell",
     vibrate: [200, 100, 200],
     renotify: true,
   });
 }
 
-// --- Silent audio keepalive (prevents mobile browsers from suspending JS) ---
-let keepaliveCtx = null;
-let keepaliveSource = null;
-
-function startKeepalive() {
-  keepaliveCtx = new (window.AudioContext || window.webkitAudioContext)();
-  // 1-second silent buffer looping forever
-  const buf = keepaliveCtx.createBuffer(1, keepaliveCtx.sampleRate, keepaliveCtx.sampleRate);
-  keepaliveSource = keepaliveCtx.createBufferSource();
-  keepaliveSource.buffer = buf;
-  keepaliveSource.loop = true;
-  // Connect through a near-zero gain so it's inaudible
-  const gain = keepaliveCtx.createGain();
-  gain.gain.value = 0.001;
-  keepaliveSource.connect(gain);
-  gain.connect(keepaliveCtx.destination);
-  keepaliveSource.start();
-}
-
-function stopKeepalive() {
-  if (keepaliveSource) { keepaliveSource.stop(); keepaliveSource = null; }
-  if (keepaliveCtx) { keepaliveCtx.close(); keepaliveCtx = null; }
-}
-
-// --- UI ---
-let timerId = null;
+// --- Composite track playback ---
+let audioCtx = null;
+let sourceNode = null;
+let playbackStartTime = 0;
+let dingTimesSeconds = [];  // timestamps within the track where each ding occurs
+let totalDings = 0;
+let lastNotifiedDing = -1;
 let countdownId = null;
-let nextDing = null;
-let intervalMs = null;
 
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const statusEl = document.getElementById("status");
 const countdownEl = document.getElementById("countdown");
+const progressEl = document.getElementById("ding-progress");
 
-document.querySelectorAll(".sound-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    selectSound(btn.dataset.sound);
-    playSound();
+function buildCompositeBuffer(clipBuffer, intervalSec, count) {
+  const sampleRate = clipBuffer.sampleRate;
+  const channels = clipBuffer.numberOfChannels;
+  const clipLen = clipBuffer.length;
+  const intervalSamples = Math.round(intervalSec * sampleRate);
+
+  // Dings at t=0, t=interval, t=2*interval, ...
+  // Total length = (count-1)*interval + clipLength
+  const totalSamples = (count - 1) * intervalSamples + clipLen;
+
+  const composite = new AudioBuffer({
+    numberOfChannels: channels,
+    length: totalSamples,
+    sampleRate: sampleRate,
   });
-});
 
-selectSound(selectedSound);
+  dingTimesSeconds = [];
 
-function formatCountdown(ms) {
-  if (ms <= 0) return "0:00";
-  const totalSec = Math.ceil(ms / 1000);
+  for (let i = 0; i < count; i++) {
+    const offsetSamples = i * intervalSamples;
+    dingTimesSeconds.push(offsetSamples / sampleRate);
+    for (let ch = 0; ch < channels; ch++) {
+      const src = clipBuffer.getChannelData(ch);
+      const dst = composite.getChannelData(ch);
+      // Copy clip samples, clamping to buffer bounds
+      const copyLen = Math.min(clipLen, totalSamples - offsetSamples);
+      for (let s = 0; s < copyLen; s++) {
+        dst[offsetSamples + s] += src[s];
+      }
+    }
+  }
+
+  return composite;
+}
+
+function formatCountdown(sec) {
+  if (sec <= 0) return "0:00";
+  const totalSec = Math.ceil(sec);
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return m + ":" + String(s).padStart(2, "0");
 }
 
-function updateCountdown() {
-  if (!nextDing) return;
-  const remaining = nextDing - Date.now();
-  countdownEl.textContent = formatCountdown(remaining);
-  if (remaining <= 0) countdownEl.textContent = "";
-}
+function updateProgress() {
+  if (!audioCtx || !sourceNode) return;
+  const elapsed = audioCtx.currentTime - playbackStartTime;
 
-function ding() {
-  playSound();
-  showNotification();
-  nextDing = Date.now() + intervalMs;
+  // Find the next ding
+  let nextDingIdx = -1;
+  for (let i = 0; i < dingTimesSeconds.length; i++) {
+    if (dingTimesSeconds[i] > elapsed + 0.5) {
+      nextDingIdx = i;
+      break;
+    }
+  }
+
+  // Fire notifications for dings we've passed
+  for (let i = 0; i < dingTimesSeconds.length; i++) {
+    if (i > lastNotifiedDing && elapsed >= dingTimesSeconds[i]) {
+      lastNotifiedDing = i;
+      showNotification();
+    }
+  }
+
+  if (nextDingIdx >= 0) {
+    const remaining = dingTimesSeconds[nextDingIdx] - elapsed;
+    countdownEl.textContent = formatCountdown(remaining);
+    progressEl.textContent = (nextDingIdx) + " / " + totalDings;
+  } else {
+    // All dings have played, show time until track ends
+    const trackDuration = dingTimesSeconds[dingTimesSeconds.length - 1];
+    // After last ding, just show done count
+    progressEl.textContent = totalDings + " / " + totalDings;
+    countdownEl.textContent = "";
+  }
 }
 
 async function start() {
   const minutes = parseFloat(intervalInput.value);
-  if (isNaN(minutes) || minutes <= 0) return;
-  intervalMs = minutes * 60 * 1000;
+  const count = parseInt(dingsInput.value);
+  if (isNaN(minutes) || minutes <= 0 || isNaN(count) || count < 1) return;
 
   localStorage.setItem("dinger-interval", intervalInput.value);
+  localStorage.setItem("dinger-dings", dingsInput.value);
+
+  const clipBuffer = decodedBuffers[selectedSound];
+  if (!clipBuffer) {
+    statusEl.textContent = "loading sounds...";
+    await decodeSound(selectedSound);
+    return start();
+  }
 
   // Request notification permission
   if ("Notification" in window && Notification.permission === "default") {
@@ -315,46 +408,56 @@ async function start() {
     }
   }
 
-  startKeepalive();
-  playSound();
-  showNotification();
+  totalDings = count;
+  lastNotifiedDing = -1;
 
-  nextDing = Date.now() + intervalMs;
-  timerId = setInterval(ding, intervalMs);
-  countdownId = setInterval(updateCountdown, 250);
+  const intervalSec = minutes * 60;
+  const composite = buildCompositeBuffer(clipBuffer, intervalSec, count);
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = composite;
+  sourceNode.connect(audioCtx.destination);
+
+  playbackStartTime = audioCtx.currentTime;
+  sourceNode.start();
+
+  sourceNode.onended = () => {
+    stop();
+  };
+
+  countdownId = setInterval(updateProgress, 250);
 
   startBtn.disabled = true;
   stopBtn.disabled = false;
   intervalInput.disabled = true;
-  statusEl.textContent = SOUNDS[selectedSound].label.toLowerCase() + " every " + minutes + " min";
+  dingsInput.disabled = true;
+
+  const totalMin = Math.round(intervalSec * (count - 1) / 60);
+  statusEl.textContent = count + " " + SOUND_LABELS[selectedSound].toLowerCase() + "s over " + totalMin + " min";
 }
 
 function stop() {
-  stopKeepalive();
-  clearInterval(timerId);
+  if (sourceNode) {
+    try { sourceNode.stop(); } catch(e) {}
+    sourceNode = null;
+  }
+  if (audioCtx) {
+    audioCtx.close();
+    audioCtx = null;
+  }
   clearInterval(countdownId);
-  timerId = null;
   countdownId = null;
-  nextDing = null;
-  intervalMs = null;
+  dingTimesSeconds = [];
+  lastNotifiedDing = -1;
   startBtn.disabled = false;
   stopBtn.disabled = true;
   intervalInput.disabled = false;
+  dingsInput.disabled = false;
   statusEl.textContent = "";
   countdownEl.textContent = "";
+  progressEl.textContent = "";
 }
-
-// --- Visibility API: catch up after background throttling ---
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible" || !timerId || !nextDing) return;
-  const now = Date.now();
-  if (now >= nextDing) {
-    ding();
-    clearInterval(timerId);
-    timerId = setInterval(ding, intervalMs);
-  }
-  updateCountdown();
-});
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", stop);
