@@ -40,7 +40,7 @@
     font-weight: 300;
     letter-spacing: 0.3em;
     text-transform: uppercase;
-    color: #555;
+    color: #999;
   }
 
   /* --- Countdown --- */
@@ -55,12 +55,12 @@
 
   #countdown:empty::after {
     content: "\00b7";
-    color: #333;
+    color: #666;
   }
 
   #ding-progress {
     font-size: 0.75rem;
-    color: #444;
+    color: #888;
     font-weight: 300;
     min-height: 1.2em;
   }
@@ -74,7 +74,7 @@
   .sound-btn {
     background: none;
     border: none;
-    color: #444;
+    color: #888;
     font-family: inherit;
     font-size: 0.8rem;
     font-weight: 400;
@@ -85,10 +85,10 @@
     transition: color 0.2s, border-color 0.2s;
   }
 
-  .sound-btn:hover { color: #888; }
+  .sound-btn:hover { color: #bbb; }
   .sound-btn.selected {
-    color: #c0c0c0;
-    border-bottom-color: #c0c0c0;
+    color: #d8d8d8;
+    border-bottom-color: #d8d8d8;
   }
 
   /* --- Settings row --- */
@@ -107,7 +107,7 @@
   .setting input {
     background: none;
     border: none;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid #555;
     color: #e8e8e8;
     font-family: inherit;
     font-size: 1.5rem;
@@ -120,12 +120,12 @@
   }
 
   .setting input:focus {
-    border-bottom-color: #666;
+    border-bottom-color: #888;
   }
 
   .setting span {
     font-size: 0.85rem;
-    color: #555;
+    color: #999;
     font-weight: 300;
   }
 
@@ -137,8 +137,8 @@
 
   .ctrl-btn {
     background: none;
-    border: 1px solid #333;
-    color: #888;
+    border: 1px solid #555;
+    color: #aaa;
     font-family: inherit;
     font-size: 0.8rem;
     font-weight: 400;
@@ -152,18 +152,18 @@
 
   .ctrl-btn:hover:not(:disabled) {
     color: #e8e8e8;
-    border-color: #666;
+    border-color: #888;
   }
 
   .ctrl-btn:disabled {
-    opacity: 0.25;
+    opacity: 0.4;
     cursor: default;
   }
 
   /* --- Status --- */
   #status {
     font-size: 0.75rem;
-    color: #444;
+    color: #888;
     text-align: center;
     min-height: 1.2em;
     font-weight: 300;
