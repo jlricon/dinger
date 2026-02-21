@@ -3,159 +3,185 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#1a1a2e">
+<meta name="theme-color" content="#0d0d0d">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.json">
 <title>Dinger</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap');
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #1a1a2e;
-    color: #e0e0e0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0d0d0d;
+    color: #a0a0a0;
     min-height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     padding: 2rem 1rem;
+    -webkit-font-smoothing: antialiased;
   }
 
-  h1 { font-size: 1.8rem; margin-bottom: 1.5rem; color: #fff; }
-
-  .card {
-    background: #16213e;
-    border-radius: 12px;
-    padding: 1.25rem;
+  .container {
     width: 100%;
-    max-width: 400px;
-    margin-bottom: 1rem;
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2.5rem;
   }
 
-  .card h2 {
-    font-size: 0.85rem;
+  h1 {
+    font-size: 1rem;
+    font-weight: 300;
+    letter-spacing: 0.3em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #888;
-    margin-bottom: 0.75rem;
+    color: #555;
   }
 
-  .sound-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
+  /* --- Countdown --- */
+  #countdown {
+    font-size: 3.5rem;
+    font-weight: 300;
+    color: #e8e8e8;
+    font-variant-numeric: tabular-nums;
+    min-height: 4rem;
+    letter-spacing: 0.02em;
+  }
+
+  #countdown:empty::after {
+    content: "\00b7";
+    color: #333;
+  }
+
+  /* --- Sound selector --- */
+  .sound-row {
+    display: flex;
+    gap: 1.5rem;
   }
 
   .sound-btn {
-    background: #0f3460;
-    border: 2px solid transparent;
-    border-radius: 8px;
-    color: #e0e0e0;
-    padding: 0.75rem 0.5rem;
-    font-size: 1rem;
+    background: none;
+    border: none;
+    color: #444;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 400;
+    letter-spacing: 0.05em;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
   }
 
-  .sound-btn:hover { background: #1a4a7a; }
-  .sound-btn.selected { border-color: #e94560; background: #1a4a7a; }
+  .sound-btn:hover { color: #888; }
+  .sound-btn.selected {
+    color: #c0c0c0;
+    border-bottom-color: #c0c0c0;
+  }
 
+  /* --- Interval --- */
   .interval-row {
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
+    align-items: baseline;
+    gap: 0.5rem;
   }
 
-  .interval-row input[type="number"] {
-    background: #0f3460;
-    border: 1px solid #333;
-    border-radius: 8px;
-    color: #fff;
-    font-size: 1.2rem;
-    width: 5rem;
-    padding: 0.5rem 0.75rem;
+  .interval-row input {
+    background: none;
+    border: none;
+    border-bottom: 1px solid #333;
+    color: #e8e8e8;
+    font-family: inherit;
+    font-size: 1.5rem;
+    font-weight: 300;
+    width: 3rem;
     text-align: center;
+    padding: 0.25rem 0;
+    outline: none;
+    transition: border-color 0.2s;
   }
 
-  .interval-row span { font-size: 1rem; }
+  .interval-row input:focus {
+    border-bottom-color: #666;
+  }
 
+  .interval-row span {
+    font-size: 0.85rem;
+    color: #555;
+    font-weight: 300;
+  }
+
+  /* --- Controls --- */
   .controls {
     display: flex;
-    gap: 0.75rem;
-    width: 100%;
-    max-width: 400px;
+    gap: 2rem;
   }
 
   .ctrl-btn {
-    flex: 1;
-    padding: 1rem;
-    font-size: 1.1rem;
-    font-weight: 600;
-    border: none;
-    border-radius: 12px;
+    background: none;
+    border: 1px solid #333;
+    color: #888;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.6rem 1.8rem;
+    border-radius: 2rem;
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition: color 0.2s, border-color 0.2s;
   }
 
-  .ctrl-btn:disabled { opacity: 0.4; cursor: default; }
-
-  #startBtn {
-    background: #e94560;
-    color: #fff;
+  .ctrl-btn:hover:not(:disabled) {
+    color: #e8e8e8;
+    border-color: #666;
   }
 
-  #stopBtn {
-    background: #333;
-    color: #fff;
+  .ctrl-btn:disabled {
+    opacity: 0.25;
+    cursor: default;
   }
 
+  /* --- Status --- */
   #status {
-    margin-top: 1.25rem;
-    font-size: 0.95rem;
-    color: #aaa;
+    font-size: 0.75rem;
+    color: #444;
     text-align: center;
-    min-height: 1.5em;
-  }
-
-  #countdown {
-    font-size: 2.5rem;
-    font-weight: 700;
-    color: #e94560;
-    margin-top: 0.75rem;
-    min-height: 3rem;
-    text-align: center;
-    font-variant-numeric: tabular-nums;
+    min-height: 1.2em;
+    font-weight: 300;
+    letter-spacing: 0.03em;
   }
 </style>
 </head>
 <body>
 
-<h1>Dinger</h1>
+<div class="container">
+  <h1>Dinger</h1>
 
-<div class="card">
-  <h2>Sound (tap to preview)</h2>
-  <div class="sound-grid">
+  <div id="countdown"></div>
+
+  <div class="sound-row">
     <button class="sound-btn" data-sound="bell">Bell</button>
     <button class="sound-btn" data-sound="bowl">Singing Bowl</button>
   </div>
-</div>
 
-<div class="card">
-  <h2>Interval</h2>
   <div class="interval-row">
     <input type="number" id="interval" min="1" step="1" value="5">
-    <span>minutes</span>
+    <span>min</span>
   </div>
-</div>
 
-<div class="controls">
-  <button class="ctrl-btn" id="startBtn">Start</button>
-  <button class="ctrl-btn" id="stopBtn" disabled>Stop</button>
-</div>
+  <div class="controls">
+    <button class="ctrl-btn" id="startBtn">Start</button>
+    <button class="ctrl-btn" id="stopBtn" disabled>Stop</button>
+  </div>
 
-<div id="status"></div>
-<div id="countdown"></div>
+  <div id="status"></div>
+</div>
 
 <audio id="audio-bell" preload="auto" src="140128__jetrye__bell-meditation_cleaned.wav"></audio>
 <audio id="audio-bowl" preload="auto" src="freesound_community-singing-bowl-hit-3-33366.mp3"></audio>
@@ -176,6 +202,15 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// --- Restore interval ---
+const intervalInput = document.getElementById("interval");
+const savedInterval = localStorage.getItem("dinger-interval");
+if (savedInterval) intervalInput.value = savedInterval;
+
+intervalInput.addEventListener("change", () => {
+  localStorage.setItem("dinger-interval", intervalInput.value);
+});
+
 function playSound() {
   const audio = SOUNDS[selectedSound].el;
   audio.currentTime = 0;
@@ -193,11 +228,35 @@ function selectSound(key) {
 function showNotification() {
   if (!swRegistration || Notification.permission !== "granted") return;
   swRegistration.showNotification("Dinger", {
-    body: SOUNDS[selectedSound].label + " 🔔",
+    body: SOUNDS[selectedSound].label,
     tag: "dinger-bell",
     vibrate: [200, 100, 200],
     renotify: true,
   });
+}
+
+// --- Silent audio keepalive (prevents mobile browsers from suspending JS) ---
+let keepaliveCtx = null;
+let keepaliveSource = null;
+
+function startKeepalive() {
+  keepaliveCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // 1-second silent buffer looping forever
+  const buf = keepaliveCtx.createBuffer(1, keepaliveCtx.sampleRate, keepaliveCtx.sampleRate);
+  keepaliveSource = keepaliveCtx.createBufferSource();
+  keepaliveSource.buffer = buf;
+  keepaliveSource.loop = true;
+  // Connect through a near-zero gain so it's inaudible
+  const gain = keepaliveCtx.createGain();
+  gain.gain.value = 0.001;
+  keepaliveSource.connect(gain);
+  gain.connect(keepaliveCtx.destination);
+  keepaliveSource.start();
+}
+
+function stopKeepalive() {
+  if (keepaliveSource) { keepaliveSource.stop(); keepaliveSource = null; }
+  if (keepaliveCtx) { keepaliveCtx.close(); keepaliveCtx = null; }
 }
 
 // --- UI ---
@@ -210,7 +269,6 @@ const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const statusEl = document.getElementById("status");
 const countdownEl = document.getElementById("countdown");
-const intervalInput = document.getElementById("interval");
 
 document.querySelectorAll(".sound-btn").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -247,14 +305,17 @@ async function start() {
   if (isNaN(minutes) || minutes <= 0) return;
   intervalMs = minutes * 60 * 1000;
 
+  localStorage.setItem("dinger-interval", intervalInput.value);
+
   // Request notification permission
   if ("Notification" in window && Notification.permission === "default") {
     const perm = await Notification.requestPermission();
     if (perm === "denied") {
-      statusEl.textContent = "Notifications denied — audio only";
+      statusEl.textContent = "notifications denied — audio only";
     }
   }
 
+  startKeepalive();
   playSound();
   showNotification();
 
@@ -265,10 +326,11 @@ async function start() {
   startBtn.disabled = true;
   stopBtn.disabled = false;
   intervalInput.disabled = true;
-  statusEl.textContent = "Playing " + SOUNDS[selectedSound].label + " every " + minutes + " min";
+  statusEl.textContent = SOUNDS[selectedSound].label.toLowerCase() + " every " + minutes + " min";
 }
 
 function stop() {
+  stopKeepalive();
   clearInterval(timerId);
   clearInterval(countdownId);
   timerId = null;
@@ -278,7 +340,7 @@ function stop() {
   startBtn.disabled = false;
   stopBtn.disabled = true;
   intervalInput.disabled = false;
-  statusEl.textContent = "Stopped";
+  statusEl.textContent = "";
   countdownEl.textContent = "";
 }
 
@@ -287,7 +349,6 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !timerId || !nextDing) return;
   const now = Date.now();
   if (now >= nextDing) {
-    // We missed at least one ding while backgrounded — fire now and reset
     ding();
     clearInterval(timerId);
     timerId = setInterval(ding, intervalMs);
