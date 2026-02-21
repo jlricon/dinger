@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dinger</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+  }
+
+  h1 { font-size: 1.8rem; margin-bottom: 1.5rem; color: #fff; }
+
+  .card {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 1.25rem;
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: 1rem;
+  }
+
+  .card h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #888;
+    margin-bottom: 0.75rem;
+  }
+
+  .sound-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .sound-btn {
+    background: #0f3460;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    color: #e0e0e0;
+    padding: 0.75rem 0.5rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .sound-btn:hover { background: #1a4a7a; }
+  .sound-btn.selected { border-color: #e94560; background: #1a4a7a; }
+
+  .interval-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .interval-row input[type="number"] {
+    background: #0f3460;
+    border: 1px solid #333;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 1.2rem;
+    width: 5rem;
+    padding: 0.5rem 0.75rem;
+    text-align: center;
+  }
+
+  .interval-row span { font-size: 1rem; }
+
+  .controls {
+    display: flex;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .ctrl-btn {
+    flex: 1;
+    padding: 1rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .ctrl-btn:disabled { opacity: 0.4; cursor: default; }
+
+  #startBtn {
+    background: #e94560;
+    color: #fff;
+  }
+
+  #stopBtn {
+    background: #333;
+    color: #fff;
+  }
+
+  #status {
+    margin-top: 1.25rem;
+    font-size: 0.95rem;
+    color: #aaa;
+    text-align: center;
+    min-height: 1.5em;
+  }
+
+  #countdown {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #e94560;
+    margin-top: 0.75rem;
+    min-height: 3rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+
+<h1>Dinger</h1>
+
+<div class="card">
+  <h2>Sound (tap to preview)</h2>
+  <div class="sound-grid">
+    <button class="sound-btn" data-sound="bell">Bell</button>
+    <button class="sound-btn" data-sound="bowl">Singing Bowl</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Interval</h2>
+  <div class="interval-row">
+    <input type="number" id="interval" min="1" step="1" value="5">
+    <span>minutes</span>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="ctrl-btn" id="startBtn">Start</button>
+  <button class="ctrl-btn" id="stopBtn" disabled>Stop</button>
+</div>
+
+<div id="status"></div>
+<div id="countdown"></div>
+
+<audio id="audio-bell" preload="auto" src="140128__jetrye__bell-meditation_cleaned.wav"></audio>
+<audio id="audio-bowl" preload="auto" src="freesound_community-singing-bowl-hit-3-33366.mp3"></audio>
+
+<script>
+const SOUNDS = {
+  bell: { label: "Bell", el: document.getElementById("audio-bell") },
+  bowl: { label: "Singing Bowl", el: document.getElementById("audio-bowl") },
+};
+
+let selectedSound = localStorage.getItem("dinger-sound") || "bell";
+
+function playSound() {
+  const audio = SOUNDS[selectedSound].el;
+  audio.currentTime = 0;
+  audio.play();
+}
+
+function selectSound(key) {
+  selectedSound = key;
+  localStorage.setItem("dinger-sound", key);
+  document.querySelectorAll(".sound-btn").forEach(b => {
+    b.classList.toggle("selected", b.dataset.sound === key);
+  });
+}
+
+// --- UI ---
+let timerId = null;
+let countdownId = null;
+let nextDing = null;
+
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const statusEl = document.getElementById("status");
+const countdownEl = document.getElementById("countdown");
+const intervalInput = document.getElementById("interval");
+
+document.querySelectorAll(".sound-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    selectSound(btn.dataset.sound);
+    playSound();
+  });
+});
+
+selectSound(selectedSound);
+
+function formatCountdown(ms) {
+  if (ms <= 0) return "0:00";
+  const totalSec = Math.ceil(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m + ":" + String(s).padStart(2, "0");
+}
+
+function updateCountdown() {
+  if (!nextDing) return;
+  const remaining = nextDing - Date.now();
+  countdownEl.textContent = formatCountdown(remaining);
+  if (remaining <= 0) countdownEl.textContent = "";
+}
+
+function start() {
+  const minutes = parseFloat(intervalInput.value);
+  if (isNaN(minutes) || minutes <= 0) return;
+  const ms = minutes * 60 * 1000;
+
+  playSound();
+
+  nextDing = Date.now() + ms;
+  timerId = setInterval(() => {
+    playSound();
+    nextDing = Date.now() + ms;
+  }, ms);
+
+  countdownId = setInterval(updateCountdown, 250);
+
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+  intervalInput.disabled = true;
+  statusEl.textContent = "Playing " + SOUNDS[selectedSound].label + " every " + minutes + " min";
+}
+
+function stop() {
+  clearInterval(timerId);
+  clearInterval(countdownId);
+  timerId = null;
+  countdownId = null;
+  nextDing = null;
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  intervalInput.disabled = false;
+  statusEl.textContent = "Stopped";
+  countdownEl.textContent = "";
+}
+
+startBtn.addEventListener("click", start);
+stopBtn.addEventListener("click", stop);
+</script>
+</body>
+</html>
