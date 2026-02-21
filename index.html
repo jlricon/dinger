@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
 <title>Dinger</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -163,6 +167,14 @@ const SOUNDS = {
 };
 
 let selectedSound = localStorage.getItem("dinger-sound") || "bell";
+let swRegistration = null;
+
+// --- Service Worker ---
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    swRegistration = reg;
+  });
+}
 
 function playSound() {
   const audio = SOUNDS[selectedSound].el;
@@ -178,10 +190,21 @@ function selectSound(key) {
   });
 }
 
+function showNotification() {
+  if (!swRegistration || Notification.permission !== "granted") return;
+  swRegistration.showNotification("Dinger", {
+    body: SOUNDS[selectedSound].label + " 🔔",
+    tag: "dinger-bell",
+    vibrate: [200, 100, 200],
+    renotify: true,
+  });
+}
+
 // --- UI ---
 let timerId = null;
 let countdownId = null;
 let nextDing = null;
+let intervalMs = null;
 
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
@@ -213,19 +236,30 @@ function updateCountdown() {
   if (remaining <= 0) countdownEl.textContent = "";
 }
 
-function start() {
+function ding() {
+  playSound();
+  showNotification();
+  nextDing = Date.now() + intervalMs;
+}
+
+async function start() {
   const minutes = parseFloat(intervalInput.value);
   if (isNaN(minutes) || minutes <= 0) return;
-  const ms = minutes * 60 * 1000;
+  intervalMs = minutes * 60 * 1000;
+
+  // Request notification permission
+  if ("Notification" in window && Notification.permission === "default") {
+    const perm = await Notification.requestPermission();
+    if (perm === "denied") {
+      statusEl.textContent = "Notifications denied — audio only";
+    }
+  }
 
   playSound();
+  showNotification();
 
-  nextDing = Date.now() + ms;
-  timerId = setInterval(() => {
-    playSound();
-    nextDing = Date.now() + ms;
-  }, ms);
-
+  nextDing = Date.now() + intervalMs;
+  timerId = setInterval(ding, intervalMs);
   countdownId = setInterval(updateCountdown, 250);
 
   startBtn.disabled = true;
@@ -240,12 +274,26 @@ function stop() {
   timerId = null;
   countdownId = null;
   nextDing = null;
+  intervalMs = null;
   startBtn.disabled = false;
   stopBtn.disabled = true;
   intervalInput.disabled = false;
   statusEl.textContent = "Stopped";
   countdownEl.textContent = "";
 }
+
+// --- Visibility API: catch up after background throttling ---
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !timerId || !nextDing) return;
+  const now = Date.now();
+  if (now >= nextDing) {
+    // We missed at least one ding while backgrounded — fire now and reset
+    ding();
+    clearInterval(timerId);
+    timerId = setInterval(ding, intervalMs);
+  }
+  updateCountdown();
+});
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", stop);
