@@ -314,9 +314,9 @@ function buildCompositeBuffer(clipBuffer, intervalSec, count) {
   const clipLen = clipBuffer.length;
   const intervalSamples = Math.round(intervalSec * sampleRate);
 
-  // Dings at t=0, t=interval, t=2*interval, ...
-  // Total length = (count-1)*interval + clipLength
-  const totalSamples = (count - 1) * intervalSamples + clipLen;
+  // Dings at t=interval, t=2*interval, t=3*interval, ...
+  // Total length = count*interval + clipLength
+  const totalSamples = count * intervalSamples + clipLen;
 
   const composite = new AudioBuffer({
     numberOfChannels: channels,
@@ -327,7 +327,7 @@ function buildCompositeBuffer(clipBuffer, intervalSec, count) {
   dingTimesSeconds = [];
 
   for (let i = 0; i < count; i++) {
-    const offsetSamples = i * intervalSamples;
+    const offsetSamples = (i + 1) * intervalSamples;
     dingTimesSeconds.push(offsetSamples / sampleRate);
     for (let ch = 0; ch < channels; ch++) {
       const src = clipBuffer.getChannelData(ch);
