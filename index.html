@@ -301,6 +301,25 @@ let dingTimesSeconds = [];  // timestamps within the track where each ding occur
 let totalDings = 0;
 let lastNotifiedDing = -1;
 let countdownId = null;
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if ("wakeLock" in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } catch (e) {
+      // Wake Lock request can fail (e.g. low battery, background tab)
+    }
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release();
+    wakeLock = null;
+  }
+}
 
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
@@ -428,6 +447,8 @@ async function start() {
 
   countdownId = setInterval(updateProgress, 250);
 
+  await requestWakeLock();
+
   startBtn.disabled = true;
   stopBtn.disabled = false;
   intervalInput.disabled = true;
@@ -457,10 +478,26 @@ function stop() {
   statusEl.textContent = "";
   countdownEl.textContent = "";
   progressEl.textContent = "";
+  releaseWakeLock();
 }
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", stop);
+
+// Resume AudioContext and re-acquire Wake Lock when page becomes visible again.
+// Browsers suspend AudioContext when the tab is hidden or the device sleeps,
+// which causes the timer to lose time.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && audioCtx) {
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
+    // Wake Lock is released when the page goes hidden; re-acquire it
+    if (!wakeLock) {
+      requestWakeLock();
+    }
+  }
+});
 </script>
 </body>
 </html>
