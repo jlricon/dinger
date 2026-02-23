@@ -297,10 +297,16 @@ function showNotification() {
 let audioCtx = null;
 let sourceNode = null;
 let playbackStartTime = 0;
-let dingTimesSeconds = [];  // timestamps within the track where each ding occurs
+let wallStartTime = 0;           // Date.now() when playback started
+let dingTimesSeconds = [];        // timestamps within the track where each ding occurs
 let totalDings = 0;
 let lastNotifiedDing = -1;
 let countdownId = null;
+let expectedDurationSec = 0;     // total expected duration of composite track
+let activeIntervalSec = 0;       // interval between dings for the running timer
+let activeSoundKey = null;        // which sound is being used for the running timer
+let wakeLock = null;
+let isRunning = false;
 
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
@@ -324,15 +330,14 @@ function buildCompositeBuffer(clipBuffer, intervalSec, count) {
     sampleRate: sampleRate,
   });
 
-  dingTimesSeconds = [];
+  const times = [];
 
   for (let i = 0; i < count; i++) {
     const offsetSamples = (i + 1) * intervalSamples;
-    dingTimesSeconds.push(offsetSamples / sampleRate);
+    times.push(offsetSamples / sampleRate);
     for (let ch = 0; ch < channels; ch++) {
       const src = clipBuffer.getChannelData(ch);
       const dst = composite.getChannelData(ch);
-      // Copy clip samples, clamping to buffer bounds
       const copyLen = Math.min(clipLen, totalSamples - offsetSamples);
       for (let s = 0; s < copyLen; s++) {
         dst[offsetSamples + s] += src[s];
@@ -340,7 +345,7 @@ function buildCompositeBuffer(clipBuffer, intervalSec, count) {
     }
   }
 
-  return composite;
+  return { composite, times };
 }
 
 function formatCountdown(sec) {
@@ -351,9 +356,13 @@ function formatCountdown(sec) {
   return m + ":" + String(s).padStart(2, "0");
 }
 
+function wallElapsed() {
+  return (Date.now() - wallStartTime) / 1000;
+}
+
 function updateProgress() {
-  if (!audioCtx || !sourceNode) return;
-  const elapsed = audioCtx.currentTime - playbackStartTime;
+  if (!isRunning) return;
+  const elapsed = wallElapsed();
 
   // Find the next ding
   let nextDingIdx = -1;
@@ -377,12 +386,116 @@ function updateProgress() {
     countdownEl.textContent = formatCountdown(remaining);
     progressEl.textContent = (nextDingIdx) + " / " + totalDings;
   } else {
-    // All dings have played, show time until track ends
-    const trackDuration = dingTimesSeconds[dingTimesSeconds.length - 1];
-    // After last ding, just show done count
     progressEl.textContent = totalDings + " / " + totalDings;
     countdownEl.textContent = "";
   }
+}
+
+// --- Wake Lock ---
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (e) {
+    // Wake lock request can fail (e.g. low battery)
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release();
+    wakeLock = null;
+  }
+}
+
+// --- Restart logic for premature AudioContext death ---
+function restartPlayback() {
+  if (!isRunning) return;
+
+  const elapsed = wallElapsed();
+
+  // Fire any missed ding notifications
+  for (let i = 0; i < dingTimesSeconds.length; i++) {
+    if (i > lastNotifiedDing && elapsed >= dingTimesSeconds[i]) {
+      lastNotifiedDing = i;
+      showNotification();
+    }
+  }
+
+  // How many dings are still in the future?
+  let remainingDings = 0;
+  const remainingDingOffsets = [];
+  for (let i = 0; i < dingTimesSeconds.length; i++) {
+    const timeUntilDing = dingTimesSeconds[i] - elapsed;
+    if (timeUntilDing > 0.5) {
+      remainingDings++;
+      remainingDingOffsets.push(timeUntilDing);
+    }
+  }
+
+  if (remainingDings === 0) {
+    // Timer was actually done
+    stop();
+    return;
+  }
+
+  // Clean up old audio context
+  if (sourceNode) {
+    try { sourceNode.stop(); } catch(e) {}
+    sourceNode = null;
+  }
+  if (audioCtx) {
+    try { audioCtx.close(); } catch(e) {}
+    audioCtx = null;
+  }
+
+  // Build a new composite buffer for the remaining dings
+  const clipBuffer = decodedBuffers[activeSoundKey];
+  if (!clipBuffer) return;
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Build a buffer with dings at the correct remaining offsets
+  const sampleRate = clipBuffer.sampleRate;
+  const channels = clipBuffer.numberOfChannels;
+  const clipLen = clipBuffer.length;
+  const lastOffset = remainingDingOffsets[remainingDingOffsets.length - 1];
+  const totalSamples = Math.round(lastOffset * sampleRate) + clipLen;
+
+  const composite = new AudioBuffer({
+    numberOfChannels: channels,
+    length: totalSamples,
+    sampleRate: sampleRate,
+  });
+
+  for (let i = 0; i < remainingDingOffsets.length; i++) {
+    const offsetSamples = Math.round(remainingDingOffsets[i] * sampleRate);
+    for (let ch = 0; ch < channels; ch++) {
+      const src = clipBuffer.getChannelData(ch);
+      const dst = composite.getChannelData(ch);
+      const copyLen = Math.min(clipLen, totalSamples - offsetSamples);
+      for (let s = 0; s < copyLen; s++) {
+        dst[offsetSamples + s] += src[s];
+      }
+    }
+  }
+
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = composite;
+  sourceNode.connect(audioCtx.destination);
+  sourceNode.start();
+
+  sourceNode.onended = () => {
+    if (!isRunning) return;
+    const elapsedNow = wallElapsed();
+    if (elapsedNow < expectedDurationSec - 2) {
+      // Premature end — restart again
+      restartPlayback();
+    } else {
+      stop();
+    }
+  };
 }
 
 async function start() {
@@ -410,9 +523,13 @@ async function start() {
 
   totalDings = count;
   lastNotifiedDing = -1;
+  activeSoundKey = selectedSound;
 
   const intervalSec = minutes * 60;
-  const composite = buildCompositeBuffer(clipBuffer, intervalSec, count);
+  activeIntervalSec = intervalSec;
+  const { composite, times } = buildCompositeBuffer(clipBuffer, intervalSec, count);
+  dingTimesSeconds = times;
+  expectedDurationSec = composite.duration;
 
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   sourceNode = audioCtx.createBufferSource();
@@ -420,10 +537,19 @@ async function start() {
   sourceNode.connect(audioCtx.destination);
 
   playbackStartTime = audioCtx.currentTime;
+  wallStartTime = Date.now();
+  isRunning = true;
   sourceNode.start();
 
   sourceNode.onended = () => {
-    stop();
+    if (!isRunning) return;
+    const elapsed = wallElapsed();
+    if (elapsed < expectedDurationSec - 2) {
+      // Premature end (OS killed AudioContext) — restart
+      restartPlayback();
+    } else {
+      stop();
+    }
   };
 
   countdownId = setInterval(updateProgress, 250);
@@ -435,9 +561,12 @@ async function start() {
 
   const totalMin = Math.round(intervalSec * (count - 1) / 60);
   statusEl.textContent = count + " " + SOUND_LABELS[selectedSound].toLowerCase() + "s over " + totalMin + " min";
+
+  await requestWakeLock();
 }
 
 function stop() {
+  isRunning = false;
   if (sourceNode) {
     try { sourceNode.stop(); } catch(e) {}
     sourceNode = null;
@@ -450,6 +579,7 @@ function stop() {
   countdownId = null;
   dingTimesSeconds = [];
   lastNotifiedDing = -1;
+  expectedDurationSec = 0;
   startBtn.disabled = false;
   stopBtn.disabled = true;
   intervalInput.disabled = false;
@@ -457,7 +587,29 @@ function stop() {
   statusEl.textContent = "";
   countdownEl.textContent = "";
   progressEl.textContent = "";
+  releaseWakeLock();
 }
+
+// --- Visibility change: resume suspended AudioContext or restart ---
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !isRunning) return;
+
+  // Re-acquire wake lock (it's released when page becomes hidden)
+  requestWakeLock();
+
+  if (audioCtx && audioCtx.state === "suspended") {
+    audioCtx.resume().catch(() => {
+      // Resume failed — restart playback
+      restartPlayback();
+    });
+  } else if (!audioCtx || audioCtx.state === "closed") {
+    // AudioContext was killed entirely
+    restartPlayback();
+  }
+
+  // Immediately update progress to catch up on missed dings/notifications
+  updateProgress();
+});
 
 startBtn.addEventListener("click", start);
 stopBtn.addEventListener("click", stop);
